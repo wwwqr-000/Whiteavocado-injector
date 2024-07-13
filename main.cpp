@@ -75,8 +75,39 @@ DWORD WINAPI loadLibraryThread(LPVOID lpParameter) {
     return 0;
 }
 
+bool EnableDebugPrivilege() {
+    HANDLE hToken;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &hToken)) {
+        std::cerr << "Failed to open process token." << std::endl;
+        return false;
+    }
+
+    TOKEN_PRIVILEGES tp;
+    LUID luid;
+
+    if (!LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &luid)) {
+        std::cerr << "Failed to lookup privilege value." << std::endl;
+        CloseHandle(hToken);
+        return false;
+    }
+
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Luid = luid;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    if (!AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), NULL, NULL)) {
+        std::cerr << "Failed to adjust token privileges." << std::endl;
+        CloseHandle(hToken);
+        return false;
+    }
+
+    CloseHandle(hToken);
+    return true;
+}
+
 //box onclick calls
 void inject() {
+    EnableDebugPrivilege();
     // Check if DLL exists
     string dllPath = "test.dll";
     string processName = "Whiteavocado-injector.exe";
@@ -191,7 +222,8 @@ void inject() {
 
     // Checkif the module handle is valid
     if (hModule == NULL) {
-        cout << "Failed to get module handle" << endl;
+        DWORD dwError = GetLastError();
+        cout << "Failed to get module handle. Error code: " << dwError << endl;
         VirtualFreeEx(hProcess, lpAddress, 0, MEM_RELEASE);
         CloseHandle(hProcess);
         return;
