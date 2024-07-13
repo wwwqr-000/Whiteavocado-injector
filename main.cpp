@@ -68,7 +68,6 @@ bool fileExists(std::string& fName) {
     return true;
 }
 
-//box onclick calls
 void nullClick() {}
 
 DWORD WINAPI loadLibraryThread(LPVOID lpParameter) {
@@ -76,16 +75,17 @@ DWORD WINAPI loadLibraryThread(LPVOID lpParameter) {
     return 0;
 }
 
+//box onclick calls
 void inject() {
-    // Check if the DLL file exists
+    // Check if DLL exists
     string dllPath = "test.dll";
-    string processName = "Naamloos - Paint";
+    string processName = "Whiteavocado-injector.exe";
     if (!fileExists(dllPath)) {
-        cout << "DLL not found." << endl;
+        cout << "DLL could not be found.\n";
         return;
     }
 
-    // Find the process
+    // Get the process from name
     HANDLE hProcess = NULL;
     PROCESSENTRY32 pe32;
     pe32.dwSize = sizeof(PROCESSENTRY32);
@@ -102,7 +102,6 @@ void inject() {
     }
 
     do {
-        std::cout << "test\n";
         if (std::string(pe32.szExeFile, pe32.szExeFile + strlen(pe32.szExeFile)) == processName) {
             hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pe32.th32ProcessID);
             break;
@@ -112,7 +111,40 @@ void inject() {
     CloseHandle(hSnapshot);
 
     if (hProcess == NULL) {
-        cout << "Failed to get process handle." << endl;
+        cout << "Failed to get process handle, are you sure " << processName << " is active?\n" << endl;
+        return;
+    }
+
+    // Set debug privilege to enable injection into other processes
+    HANDLE hToken;
+    TOKEN_PRIVILEGES tp;
+    DWORD dwSize;
+    ZeroMemory(&tp, sizeof(tp));
+    tp.PrivilegeCount = 1;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &hToken)) {
+        CloseHandle(hProcess);
+        cout << "Failed to open process token." << endl;
+        return;
+    }
+    if (!LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &tp.Privileges[0].Luid)) {
+        CloseHandle(hToken);
+        CloseHandle(hProcess);
+        cout << "Failed to lookup debug privilege." << endl;
+        return;
+    }
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    if (!AdjustTokenPrivileges(hToken, FALSE, &tp, 0, NULL, &dwSize)) {
+        CloseHandle(hToken);
+        CloseHandle(hProcess);
+        cout << "Failed to adjust token privileges." << endl;
+        return;
+    }
+    CloseHandle(hToken);
+
+    FARPROC lpStartAddress = GetProcAddress(GetModuleHandle("kernel32"), "LoadLibraryA");
+    if (lpStartAddress == NULL) {
+        cout << "Failed to get address of LoadLibraryA." << endl;
+        CloseHandle(hProcess);
         return;
     }
 
@@ -120,6 +152,7 @@ void inject() {
     LPVOID lpAddress = VirtualAllocEx(hProcess, NULL, dllPath.length() + 1, MEM_COMMIT, PAGE_READWRITE);
     if (lpAddress == NULL) {
         cout << "Failed to allocate memory." << endl;
+        CloseHandle(hProcess);
         return;
     }
 
@@ -127,19 +160,15 @@ void inject() {
     SIZE_T bytesWritten;
     if (!WriteProcessMemory(hProcess, lpAddress, dllPath.c_str(), dllPath.length() + 1, &bytesWritten)) {
         cout << "Failed to write to process memory." << endl;
+        VirtualFreeEx(hProcess, lpAddress, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
         return;
     }
 
-    // Get the address of the LoadLibraryA function
-    HMODULE hKernel32 = GetModuleHandle("kernel32.dll");
-    if (hKernel32 == NULL) {
-        cout << "Failed to get kernel32 module handle." << endl;
-        return;
-    }
-
-    FARPROC lpStartAddress = GetProcAddress(hKernel32, "LoadLibraryA");
-    if (lpStartAddress == NULL) {
-        cout << "Failed to get LoadLibraryA address." << endl;
+    if (bytesWritten!= dllPath.length() + 1) {
+        cout << "Failed to write entire DLL path to process memory." << endl;
+        VirtualFreeEx(hProcess, lpAddress, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
         return;
     }
 
@@ -147,20 +176,34 @@ void inject() {
     HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)lpStartAddress, lpAddress, 0, NULL);
     if (hThread == NULL) {
         cout << "Failed to create remote thread." << endl;
+        VirtualFreeEx(hProcess, lpAddress, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
         return;
     }
 
     // Wait for the thread to finish
     WaitForSingleObject(hThread, INFINITE);
 
-    // Clean up
+    // Get the DLL's module handle
+    HMODULE hModule;
+    GetExitCodeThread(hThread, (LPDWORD)&hModule);
     CloseHandle(hThread);
+
+    // Checkif the module handle is valid
+    if (hModule == NULL) {
+        cout << "Failed to get module handle" << endl;
+        VirtualFreeEx(hProcess, lpAddress, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return;
+    }
+
+    // Clean up
+    FreeLibrary(hModule);
     VirtualFreeEx(hProcess, lpAddress, 0, MEM_RELEASE);
     CloseHandle(hProcess);
-
+    cout << "Injected successfully.\n";
     return;
 }
-//
 
 void frameObjectSetup() {
     point3 color_green(0, 255, 72);
