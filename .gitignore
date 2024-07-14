@@ -34,3 +34,6 @@ dll/dll/dll.layout
 dll/dll/obj/Debug/main.o
 obj/Release/main.o
 test.dll
+dll/dll/obj/Release/main.o
+main.dll
+/py-test

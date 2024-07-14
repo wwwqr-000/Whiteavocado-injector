@@ -237,6 +237,38 @@ void inject() {
     return;
 }
 
+void inject2() {
+    LPCSTR DllPath = "test.dll";
+    HWND hwnd_win = FindWindow(NULL, "Whiteavocado-injector.exe");
+    DWORD processID;
+    GetWindowThreadProcessId(hwnd_win, &processID);
+    HANDLE handle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, processID);
+
+    LPVOID pDllPath = VirtualAllocEx(handle, 0, strlen(DllPath) + 1, MEM_COMMIT, PAGE_READWRITE);
+
+    WriteProcessMemory(handle, pDllPath, (LPVOID)DllPath, strlen(DllPath) + 1, 0);
+
+    HANDLE hLoadThread = CreateRemoteThread(handle, 0, 0, (LPTHREAD_START_ROUTINE)GetProcAddress(GetModuleHandleA("Kernel32.dll"), "LoadLibraryA"), pDllPath, 0, 0);
+
+    WaitForSingleObject(hLoadThread, INFINITE);
+
+    std::cout << "Dll path located at: " << std::hex << pDllPath << "\n";
+
+    VirtualFreeEx(handle, pDllPath, strlen(DllPath) + 1, MEM_RELEASE);
+}
+
+void loadDll() {
+    HMODULE const mainDll = LoadLibraryExW(L"main.dll", nullptr, 0);
+    using mainType = char const* (__cdecl*)();
+    using mainVoid = void const* (__cdecl*)();
+    mainType const getTest = reinterpret_cast<mainType>(GetProcAddress(mainDll, "getTest"));
+    mainVoid testMessage = reinterpret_cast<mainVoid>(GetProcAddress(mainDll, "testMessage"));
+    puts(getTest());
+    testMessage();
+    std::cout << "loaded dll\n";
+    FreeLibrary(mainDll);
+}
+
 void frameObjectSetup() {
     point3 color_green(0, 255, 72);
     std::vector<menuItem> titleItems;
@@ -245,8 +277,10 @@ void frameObjectSetup() {
     menu titleHolder(point2(0, 0), point2((50 * 16), 20), color_green, titleItems, "title-holder", COLUMN, true);
 
     std::vector<menuItem> navbarItems;
-    menuItem injectItem(point2(1, 23), point2(51, 41), color_green, 1, "inject", inject, false);
+    menuItem injectItem(point2(1, 23), point2(51, 41), color_green, 1, "inject", inject2, false);
+    menuItem loadDllItem(point2(52, 23), point2(102, 41), color_green, 1, "load dll", loadDll, false);
     navbarItems.emplace_back(injectItem);
+    navbarItems.emplace_back(loadDllItem);
 
     menu navbarMenu(point2(0, 22), point2((50 * 16), 42), color_green, navbarItems, "navbar", COLUMN, true);
 

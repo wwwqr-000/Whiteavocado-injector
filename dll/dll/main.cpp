@@ -1,52 +1,137 @@
 #include <windows.h>
-#include <dbghelp.h>
 #include <iostream>
 
-#pragma comment(lib, "Dbghelp.lib")
-
-// Error handling macro
-#define CHECK_ERROR(cond, msg) if (!(cond)) { std::cerr << msg << std::endl; return FALSE; }
-
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
-    switch (ul_reason_for_call) {
-    case DLL_PROCESS_ATTACH: {
-        // Initialization code for the DLL
-
-        // Get the base address of the module
-        PBYTE baseAddress = reinterpret_cast<PBYTE>(hModule);
-
-        // Get the DOS header
-        PIMAGE_DOS_HEADER dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(baseAddress);
-        CHECK_ERROR(dosHeader->e_magic == IMAGE_DOS_SIGNATURE, "Invalid DOS signature");
-
-        // Get the NT headers
-        PIMAGE_NT_HEADERS ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(baseAddress + dosHeader->e_lfanew);
-        CHECK_ERROR(ntHeaders->Signature == IMAGE_NT_SIGNATURE, "Invalid NT signature");
-
-        // Example RVA (replace with a valid RVA from your context)
-        DWORD rva = 0x1000; // Example RVA, change to a valid one
-
-        // Convert RVA to VA
-        PVOID va = ImageRvaToVa(ntHeaders, baseAddress, rva, nullptr);
-        CHECK_ERROR(va != nullptr, "ImageRvaToVa failed");
-
-        // Read the value at the VA
-        try {
-            int value = *reinterpret_cast<int*>(va);
-            std::cout << "Value: " << value << std::endl;
-        }
-        catch (...) {
-            std::cerr << "Failed to read value" << std::endl;
-            return FALSE;
-        }
-
-        MessageBoxA(NULL, "DLL Loaded: Process Attach", "DLL Message", MB_OK | MB_ICONINFORMATION);
-
-        break;
-    }
-    case DLL_PROCESS_DETACH:
-        // Cleanup code for the DLL
-        break;
-    }
-    return TRUE;
+extern "C" char const* __cdecl getTest() {
+    return "test123";
 }
+
+extern "C" void __cdecl testMessage() {
+    MessageBoxW(NULL, L"This is a test", L"main DLL", MB_OK);
+    return;
+}
+
+extern "C" void __cdecl beep(const char* type) {
+    std::string strType = std::string(type);
+    if (strType == "normal") {
+        MessageBeep(MB_ICONASTERISK);
+    }
+    else if (strType == "strong") {
+        MessageBeep(MB_ICONEXCLAMATION);
+    }
+    else if (strType == "crit") {
+        MessageBeep(MB_ICONHAND);
+    }
+    else if (strType == "click") {
+        Beep(1000, 10);
+    }
+}
+
+void keyPress(BYTE b) {
+    keybd_event(b, 0, 0, 0);
+    keybd_event(b, 0, KEYEVENTF_KEYUP, 0);
+}
+
+BYTE intToByte(int in) { return (byte)in; }
+BYTE charToVKCode(char in) {
+    BYTE A = 0x41;
+    if (in >= 'a' && in <= 'z') {
+        return A + (in - 'a');
+    }
+    else if (in >= 'A' && in <= 'Z') {
+        return A + (in - 'A');
+    }
+    return -1;
+}
+
+extern "C" void __cdecl key(const char* type_) {
+    std::string type = std::string(type_);
+    if (type.length() > 1) {//More than 1 char
+        if (type[0] == 'F') {//F keys
+            BYTE baseFnum = 0x70;
+            char FIndexChar = type[0];
+            int FIndex = 0;
+            if (FIndexChar > '1' && FIndexChar < '9') {
+                FIndex = FIndexChar - '0';
+            }
+
+            try {
+                std::string str = std::to_string(type[1]);
+                int FIndex = (std::stoi(str) - 1);
+                BYTE num = baseFnum + FIndex;
+                keyPress(num);
+                return;
+            }
+            catch (std::exception) {}
+        }
+        return;
+    }
+
+    //Try to create VK code from alphaChar
+    int alphaByte = charToVKCode(type[0]);
+    if (alphaByte != -1 && alphaByte != 255) {
+        keyPress(alphaByte);
+        return;
+    }
+    //
+
+    //Try to create binary VK code from integer 0-9
+    try {
+        int i = std::stoi(type);
+        BYTE vk_code = VK_NUMPAD0 + i;
+        keyPress(vk_code);
+        return;
+    }
+    catch (std::exception) {}
+    //
+    beep("click");
+}
+
+extern "C" void __cdecl mouse(const char* btn_) {
+    std::string btn = std::string(btn_);
+    POINT pt;
+    GetCursorPos(&pt);
+
+    if (btn == "left_down") { mouse_event(MOUSEEVENTF_LEFTDOWN, pt.x, pt.y, 0, 0); return; }
+    if (btn == "left_up") { mouse_event(MOUSEEVENTF_LEFTUP, pt.x, pt.y, 0, 0); return; }
+    if (btn == "right_down") { mouse_event(MOUSEEVENTF_RIGHTDOWN, pt.x, pt.y, 0, 0); return; }
+    if (btn == "right_up") { mouse_event(MOUSEEVENTF_RIGHTUP, pt.x, pt.y, 0, 0); return; }
+    if (btn == "middle_down") { mouse_event(MOUSEEVENTF_MIDDLEDOWN, pt.x, pt.y, 0, 0); return; }
+    if (btn == "middle_up") { mouse_event(MOUSEEVENTF_MIDDLEUP, pt.x, pt.y, 0, 0); return; }
+}
+
+
+/*
+WINBOOL beepNiv;
+switch (type) {
+    case BEEP_NORMAL:
+        beepNiv = MB_ICONASTERISK;
+    break;
+    case BEEP_STRONG:
+        beepNiv = MB_ICONEXCLAMATION;
+    break;
+    case BEEP_CRIT:
+        beepNiv = MB_ICONHAND;
+    break;
+    case BEEP_QUESTION:
+        beepNiv = MB_ICONQUESTION;
+    break;
+    default:
+        beepNiv = MB_ICONASTERISK;
+    break;
+}
+MessageBeep(beepNiv);
+
+
+    if (type == "0") { keyPress(0x30); return; }
+    if (type == "1") { keyPress(0x31); return; }
+    if (type == "2") { keyPress(0x32); return; }
+    if (type == "3") { keyPress(0x33); return; }
+    if (type == "4") { keyPress(0x34); return; }
+    if (type == "5") { keyPress(0x35); return; }
+    if (type == "6") { keyPress(0x36); return; }
+    if (type == "7") { keyPress(0x37); return; }
+    if (type == "8") { keyPress(0x38); return; }
+    if (type == "a") { keyPress(0x41); return; }
+    if (type == "b") { keyPress(0x42); return; }
+
+*/
